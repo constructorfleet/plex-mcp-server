@@ -1,0 +1,7 @@
+# pyproject.toml
+[project]
+name = "mcp-plex"
+version = "0.1.0"
+description = "My Plex thing that uses uv and makes me scream into the void"
+dependencies = []
+requires-python = ">=3.12"
