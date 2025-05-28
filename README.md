@@ -98,6 +98,30 @@ When the server is running in SSE mode, configure your client to connect using:
 
 With SSE, you can connect to the server via web applications or tools that support SSE connections.
 
+# Docker
+
+To run as a docker container:
+
+1 Build the Docker image
+```shell
+git clone https://github.com/constructorfleet/plex-mcp-server
+docker buildx build --tag $TAG . --push
+```
+2. Run the Docker image
+```shell
+docker run --name mcp-plex -e HOST=0.0.0.0 -e PORT:$PORT [-e ...] -p ext_port:$PORT $TAG
+```
+
+Environment Variables
+ENV             | Required | Description
+PLEX_URL        | TRUE     | The URL to your Plex Media Server
+PLEX_TOKEN      | TRUE     | The Plex Media Server X-Plex-Token
+PLEX_USERNAME   | TRUE     | Your Plex username
+DEBUG           | FALSE    | Enables debug when 1, true, or yes (case insensitive)
+PORT=3000       | FALSE    | The port the MCP server listens on inside the container (default: 3000)
+HOST=0.0.0.0    | FALSE    | The IP the MCP server should bind to (default: 0.0.0.0)
+SSE=true        | FALSE    | Enables SSEs when 1, true or yes (case insensitive)
+
 ## Command Modules
 
 ### Library Module
