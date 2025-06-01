@@ -22,4 +22,4 @@ RUN pip install mcpo uv && \
 ENTRYPOINT ["./entrypoint.sh"]
 
 #CMD ["/usr/local/bin/python3", "plex_mcp_server.py"]
-CMD ["plex_mcp_server.py"]
+CMD ["uvx ./app"]
