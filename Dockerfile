@@ -16,8 +16,10 @@ COPY . .
 
 RUN pip install mcpo uv && \
     uv venv .venv && \
+    . .venv/bin/activate && \
     uv add -r requirements.txt
 
 ENTRYPOINT ["./entrypoint.sh"]
 
+#CMD ["/usr/local/bin/python3", "plex_mcp_server.py"]
 CMD ["plex_mcp_server.py"]
