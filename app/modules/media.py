@@ -1,4 +1,4 @@
-from app.modules  mcp, connect_to_plex
+from app.modules import mcp, connect_to_plex
 from typing import List
 from plexapi.exceptions import NotFound # type: ignore
 import base64

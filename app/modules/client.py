@@ -6,7 +6,7 @@ import json
 import time
 from typing import List, Dict, Optional, Union, Any
 
-from app.modules  mcp, connect_to_plex
+from app.modules import mcp, connect_to_plex
 from plexapi.exceptions import NotFound, Unauthorized
 
 @mcp.tool()

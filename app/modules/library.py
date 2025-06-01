@@ -3,7 +3,7 @@ import requests
 import aiohttp
 import asyncio
 from plexapi.exceptions import NotFound # type: ignore
-from app.modules  mcp, connect_to_plex
+from app.modules import mcp, connect_to_plex
 from urllib.parse import urljoin
 import time
 
