@@ -16,3 +16,5 @@ dependencies = [
 requires-python = ">=3.12"
 [tool.uv]
 package = true
+[project.scripts]
+app = "app:main"
