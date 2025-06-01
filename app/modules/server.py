@@ -1,4 +1,4 @@
-from modules import mcp, connect_to_plex
+from app.modulesimport mcp, connect_to_plex
 import os
 from typing import Dict, List, Any, Optional
 import json
