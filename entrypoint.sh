@@ -49,4 +49,5 @@ if [[ "${DEBUG}" =~ ^(1|true|yes)$ ]]; then
 fi
 
 # Combine everything into one final command
+source .venv/bin/activate
 exec "${server_cmd[@]}" "${inner_cmd[@]}" "${transport_args[@]}"
