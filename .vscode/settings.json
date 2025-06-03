@@ -1,9 +1,0 @@
-{
-  "[python]": {
-    "diffEditor.ignoreTrimWhitespace": false,
-    "editor.defaultColorDecorators": "never"
-  },
-  "python.defaultInterpreterPath": "${workspaceFolder}/../.venv/bin/python3",
-  "editor.formatOnSave": true,
-  "notebook.defaultFormatter": "trunk.io"
-}
