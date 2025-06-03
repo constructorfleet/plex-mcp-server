@@ -44,16 +44,21 @@ The server can be run in two transport modes: stdio (Standard Input/Output) or S
 The stdio transport is ideal for direct integration with applications like Claude Desktop or Cursor. It accepts commands via standard input and outputs results to standard output in JSON format.
 
 Basic command line usage:
+
 ```bash
 python3 -m plex_mcp
 ```
+
 or
+
 ```bash
 python3 plex_mcp_server.py --transport stdio
 ```
 
 #### Configuration Example for Claude Desktop/Cursor
+
 Add this configuration to your application's settings:
+
 ```json
 {
   "plex": {
@@ -76,18 +81,22 @@ Add this configuration to your application's settings:
 The Server-Sent Events (SSE) transport provides a web-based interface for integration with web applications and services.
 
 Start the server:
+
 ```bash
 python3 plex_mcp_server.py --transport sse --host 0.0.0.0 --port 3001
 ```
 
 Default options:
+
 - Host: 0.0.0.0 (accessible from any network interface)
 - Port: 3001
 - SSE endpoint: `/sse`
 - Message endpoint: `/messages/`
 
 #### Configuration Example for SSE Client
+
 When the server is running in SSE mode, configure your client to connect using:
+
 ```json
 {
   "plex": {
@@ -103,28 +112,32 @@ With SSE, you can connect to the server via web applications or tools that suppo
 To run as a docker container:
 
 1 Build the Docker image
+
 ```shell
 git clone https://github.com/constructorfleet/plex-mcp-server
 docker buildx build --tag $TAG . --push
 ```
+
 2. Run the Docker image
+
 ```shell
 docker run --name mcp-plex -e HOST=0.0.0.0 -e PORT:$PORT [-e ...] -p ext_port:$PORT $TAG
 ```
 
 Environment Variables
-ENV             | Required | Description
-PLEX_URL        | TRUE     | The URL to your Plex Media Server
-PLEX_TOKEN      | TRUE     | The Plex Media Server X-Plex-Token
-PLEX_USERNAME   | TRUE     | Your Plex username
-DEBUG           | FALSE    | Enables debug when 1, true, or yes (case insensitive)
-PORT=3000       | FALSE    | The port the MCP server listens on inside the container (default: 3000)
-HOST=0.0.0.0    | FALSE    | The IP the MCP server should bind to (default: 0.0.0.0)
-SSE=true        | FALSE    | Enables SSEs when 1, true or yes (case insensitive)
+ENV | Required | Description
+PLEX_URL | TRUE | The URL to your Plex Media Server
+PLEX_TOKEN | TRUE | The Plex Media Server X-Plex-Token
+PLEX_USERNAME | TRUE | Your Plex username
+DEBUG | FALSE | Enables debug when 1, true, or yes (case insensitive)
+PORT=3000 | FALSE | The port the MCP server listens on inside the container (default: 3000)
+HOST=0.0.0.0 | FALSE | The IP the MCP server should bind to (default: 0.0.0.0)
+SSE=true | FALSE | Enables SSEs when 1, true or yes (case insensitive)
 
 ## Command Modules
 
 ### Library Module
+
 - List libraries
 - Get library statistics
 - Refresh libraries
@@ -134,6 +147,7 @@ SSE=true        | FALSE    | Enables SSEs when 1, true or yes (case insensitive)
 - Get library contents
 
 ### Media Module
+
 - Search for media
 - Get detailed media information
 - Edit media metadata
@@ -142,6 +156,7 @@ SSE=true        | FALSE    | Enables SSEs when 1, true or yes (case insensitive)
 - List available artwork
 
 ### Playlist Module
+
 - List playlists
 - Get playlist contents
 - Create playlists
@@ -153,6 +168,7 @@ SSE=true        | FALSE    | Enables SSEs when 1, true or yes (case insensitive)
 - Copy playlists to other users
 
 ### Collection Module
+
 - List collections
 - Create collections
 - Add items to collections
@@ -160,16 +176,19 @@ SSE=true        | FALSE    | Enables SSEs when 1, true or yes (case insensitive)
 - Edit collections
 
 ### User Module
+
 - Search for users
 - Get user information
 - Get user's on deck content
 - Get user watch history
 
 ### Sessions Module
+
 - Get active sessions
 - Get media playback history
 
 ### Server Module
+
 - Get Plex server logs
 - Get server information
 - Get bandwidth statistics
@@ -178,6 +197,7 @@ SSE=true        | FALSE    | Enables SSEs when 1, true or yes (case insensitive)
 - Get server alerts
 
 ### Client Module
+
 - List clients
 - Get client details
 - Get client timelines
@@ -194,6 +214,7 @@ SSE=true        | FALSE    | Enables SSEs when 1, true or yes (case insensitive)
 All commands return standardized JSON responses for maximum compatibility with various tools, automation platforms, and AI systems. This consistent structure makes it easy to process responses programmatically.
 
 For successful operations, the response typically includes:
+
 ```json
 {
   "success_field": true,
@@ -203,6 +224,7 @@ For successful operations, the response typically includes:
 ```
 
 For errors, the response format is:
+
 ```json
 {
   "error": "Error message describing what went wrong"
@@ -210,6 +232,7 @@ For errors, the response format is:
 ```
 
 For multiple matches (when searching by title), results are returned as an array of objects with identifying information:
+
 ```json
 [
   {

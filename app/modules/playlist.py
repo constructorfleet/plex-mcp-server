@@ -1,17 +1,53 @@
-from app.modules import mcp, connect_to_plex
-from typing import List
-from plexapi.playlist import Playlist # type: ignore
-from plexapi.exceptions import NotFound, BadRequest  # type: ignore
-import os
-import requests
 import base64
 import json
+import os
+from turtle import title
+from typing import Annotated, List
+
+import requests
+from mcp.types import AnyFunction, ToolAnnotations
+from plexapi.exceptions import BadRequest, NotFound  # type: ignore
+from plexapi.playlist import Playlist  # type: ignore
+from pydantic import Field
+
+from app.modules import connect_to_plex, mcp
+from app.utils.wrappers import tool_metadata
+
 
 # Functions for playlists and collections
-@mcp.tool()
-async def playlist_list(library_name: str = None, content_type: str = None) -> str:
+@tool_metadata(
+    name="plex_playlist_list",
+    description="List all playlists on the Plex server, optionally filtered by library name or content type.",
+    annotations=ToolAnnotations(
+        title="List Playlists",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    ),
+)
+async def playlist_list(
+    library_name: Annotated[
+        str | None,
+        Field(
+            title="Library Name",
+            default=None,
+            description="Optional library name to filter playlists from. If not provided, all playlists across all libraries will be listed.",
+            examples=["Movies", "TV Shows"],
+        ),
+    ] = None,
+    content_type: Annotated[
+        str | None,
+        Field(
+            title="Content Type",
+            default=None,
+            description="Optional content type to filter playlists (audio, video, photo). If not provided, all playlists will be listed regardless of content type.",
+            examples=["video", "audio"],
+        ),
+    ] = None,
+) -> str:
     """List all playlists on the Plex server.
-    
+
     Args:
         library_name: Optional library name to filter playlists from
         content_type: Optional content type to filter playlists (audio, video, photo)
@@ -19,16 +55,21 @@ async def playlist_list(library_name: str = None, content_type: str = None) -> s
     try:
         plex = connect_to_plex()
         playlists = []
-        
+
         # Filter by content type if specified
         if content_type:
             valid_types = ["audio", "video", "photo"]
             if content_type.lower() not in valid_types:
-                return json.dumps({"error": f"Invalid content type. Valid types are: {', '.join(valid_types)}"}, indent=4)
+                return json.dumps(
+                    {
+                        "error": f"Invalid content type. Valid types are: {', '.join(valid_types)}"
+                    },
+                    indent=4,
+                )
             playlists = plex.playlists(playlistType=content_type.lower())
         else:
             playlists = plex.playlists()
-        
+
         # Filter by library if specified
         if library_name:
             try:
@@ -39,37 +80,101 @@ async def playlist_list(library_name: str = None, content_type: str = None) -> s
                 else:
                     playlists = library.playlists()
             except NotFound:
-                return json.dumps({"error": f"Library '{library_name}' not found"}, indent=4)
-        
+                return json.dumps(
+                    {"error": f"Library '{library_name}' not found"}, indent=4
+                )
+
         # Format playlist data (lightweight version - no items)
         playlist_data = []
-        for playlist in playlists:
+        for playlist in [p for p in playlists if p is not None]:
             try:
-                playlist_data.append({
-                    "title": playlist.title,
-                    "key": playlist.key,
-                    "ratingKey": playlist.ratingKey,
-                    "type": playlist.playlistType,
-                    "summary": playlist.summary if hasattr(playlist, 'summary') else "",
-                    "duration": playlist.duration if hasattr(playlist, 'duration') else None,
-                    "item_count": playlist.leafCount if hasattr(playlist, 'leafCount') else None
-                })
+                playlist_data.append(
+                    {
+                        "title": playlist.title,
+                        "key": playlist.key,
+                        "ratingKey": playlist.ratingKey,
+                        "type": playlist.playlistType,
+                        "summary": (
+                            playlist.summary if hasattr(playlist, "summary") else ""
+                        ),
+                        "duration": (
+                            playlist.duration if hasattr(playlist, "duration") else None
+                        ),
+                        "item_count": (
+                            playlist.leafCount
+                            if hasattr(playlist, "leafCount")
+                            else None
+                        ),
+                    }
+                )
             except Exception as item_error:
                 # If there's an error with a specific playlist, include error info
-                playlist_data.append({
-                    "title": getattr(playlist, 'title', 'Unknown'),
-                    "key": getattr(playlist, 'key', 'Unknown'),
-                    "error": str(item_error)
-                })
-        
+                playlist_data.append(
+                    {
+                        "title": getattr(playlist, "title", "Unknown"),
+                        "key": getattr(playlist, "key", "Unknown"),
+                        "error": str(item_error),
+                    }
+                )
+
         return json.dumps(playlist_data, indent=4)
     except Exception as e:
         return json.dumps({"error": str(e)}, indent=4)
 
-@mcp.tool()
-async def playlist_create(playlist_title: str, item_titles: List[str], library_name: str = None, summary: str = None) -> str:
+
+@tool_metadata(
+    name="plex_playlist_create",
+    description="Create a new playlist with specified items.",
+    annotations=ToolAnnotations(
+        title="Create Playlist",
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=False,
+    ),
+)
+async def playlist_create(
+    playlist_title: Annotated[
+        str,
+        Field(
+            title="Playlist Title",
+            description="Title for the new playlist",
+            examples=["My Favorite Movies", "Chill Music Playlist", "Weekend TV Shows"],
+        ),
+    ],
+    item_titles: Annotated[
+        List[str],
+        Field(
+            title="Item Titles",
+            description="List of media titles to include in the playlist. Each title should match an item in your Plex library.",
+            examples=[["Inception", "Breaking Bad", "The Office"]],
+        ),
+    ],
+    library_name: Annotated[
+        str | None,
+        Field(
+            title="Library Name",
+            default=None,
+            description="Optional library name to limit search to. If not provided, searches across all libraries.",
+            examples=["Movies", "TV Shows"],
+        ),
+    ] = None,
+    summary: Annotated[
+        str | None,
+        Field(
+            title="Playlist Summary",
+            default=None,
+            description="Optional summary description for the playlist. If not provided, no summary will be set.",
+            examples=[
+                "A collection of my favorite movies",
+                "Chill music for relaxing evenings",
+                "TV shows to binge-watch on weekends",
+            ],
+        ),
+    ] = None,
+) -> str:
     """Create a new playlist with specified items.
-    
+
     Args:
         playlist_title: Title for the new playlist
         item_titles: List of media titles to include in the playlist
@@ -79,45 +184,109 @@ async def playlist_create(playlist_title: str, item_titles: List[str], library_n
     try:
         plex = connect_to_plex()
         items = []
-        
+
         # Search for items in all libraries or specific library
         for title in item_titles:
             found = False
-            search_scope = plex.library.section(library_name) if library_name else plex.library
-            
+            search_scope = (
+                plex.library.section(library_name) if library_name else plex.library
+            )
+
             # Search for the item
             search_results = search_scope.search(title=title)
-            
+
             if search_results:
                 items.append(search_results[0])
                 found = True
-            
+
             if not found:
-                return json.dumps({"status": "error", "message": f"Item '{title}' not found"}, indent=4)
-        
+                return json.dumps(
+                    {"status": "error", "message": f"Item '{title}' not found"},
+                    indent=4,
+                )
+
         if not items:
-            return json.dumps({"status": "error", "message": "No items found for the playlist"}, indent=4)
-        
+            return json.dumps(
+                {"status": "error", "message": "No items found for the playlist"},
+                indent=4,
+            )
+
         # Create the playlist
-        playlist = plex.createPlaylist(title=playlist_title, items=items, summary=summary)
-        
-        return json.dumps({
-            "status": "success", 
-            "message": f"Playlist '{playlist_title}' created successfully",
-            "data": {
-                "title": playlist.title,
-                "key": playlist.key,
-                "ratingKey": playlist.ratingKey,
-                "item_count": len(items)
-            }
-        }, indent=4)
+        playlist = plex.createPlaylist(
+            title=playlist_title, items=items, summary=summary
+        )
+
+        return json.dumps(
+            {
+                "status": "success",
+                "message": f"Playlist '{playlist_title}' created successfully",
+                "data": {
+                    "title": playlist.title,
+                    "key": playlist.key,
+                    "ratingKey": playlist.ratingKey,
+                    "item_count": len(items),
+                },
+            },
+            indent=4,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)}, indent=4)
 
-@mcp.tool()
-async def playlist_edit(playlist_title: str = None, playlist_id: int = None, new_title: str = None, new_summary: str = None) -> str:
+
+@tool_metadata(
+    name="plex_playlist_delete",
+    description="Delete a playlist by title or ID.",
+    annotations=ToolAnnotations(
+        title="Delete Playlist",
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=False,
+        openWorldHint=False,
+    ),
+)
+async def playlist_edit(
+    playlist_title: Annotated[
+        str | None,
+        Field(
+            title="Playlist Title",
+            default=None,
+            description="Title of the playlist to edit. If not provided, playlist_id must be specified.",
+            examples=["My Favorite Movies", "Chill Music Playlist"],
+        ),
+    ] = None,
+    playlist_id: Annotated[
+        int | None,
+        Field(
+            title="Playlist ID",
+            default=None,
+            description="ID of the playlist to edit. If not provided, playlist_title must be specified.",
+            examples=[12345, 67890],
+        ),
+    ] = None,
+    new_title: Annotated[
+        str | None,
+        Field(
+            title="New Playlist Title",
+            default=None,
+            description="Optional new title for the playlist. If not provided, the current title will remain unchanged.",
+            examples=["Updated Favorite Movies", "Relaxing Music"],
+        ),
+    ] = None,
+    new_summary: Annotated[
+        str | None,
+        Field(
+            title="New Playlist Summary",
+            default=None,
+            description="Optional new summary for the playlist. If not provided, the current summary will remain unchanged.",
+            examples=[
+                "A collection of my favorite movies updated",
+                "Chill music for relaxing evenings updated",
+            ],
+        ),
+    ] = None,
+) -> str:
     """Edit a playlist's details such as title and summary.
-    
+
     Args:
         playlist_title: Title of the playlist to edit (optional if playlist_id is provided)
         playlist_id: ID of the playlist to edit (optional if playlist_title is provided)
@@ -126,15 +295,18 @@ async def playlist_edit(playlist_title: str = None, playlist_id: int = None, new
     """
     try:
         plex = connect_to_plex()
-        
+
         # Validate that at least one identifier is provided
         if not playlist_id and not playlist_title:
-            return json.dumps({"error": "Either playlist_id or playlist_title must be provided"}, indent=4)
-        
+            return json.dumps(
+                {"error": "Either playlist_id or playlist_title must be provided"},
+                indent=4,
+            )
+
         # Find the playlist
         playlist = None
         original_title = None
-        
+
         # If playlist_id is provided, use it to directly fetch the playlist
         if playlist_id:
             try:
@@ -144,72 +316,155 @@ async def playlist_edit(playlist_title: str = None, playlist_id: int = None, new
                 except:
                     # If that fails, try finding by key in all playlists
                     all_playlists = plex.playlists()
-                    playlist = next((p for p in all_playlists if p.ratingKey == playlist_id), None)
-                
+                    playlist = next(
+                        (
+                            p
+                            for p in all_playlists
+                            if p is not None and p.ratingKey == playlist_id
+                        ),
+                        None,
+                    )
+
                 if not playlist:
-                    return json.dumps({"error": f"Playlist with ID '{playlist_id}' not found"}, indent=4)
+                    return json.dumps(
+                        {"error": f"Playlist with ID '{playlist_id}' not found"},
+                        indent=4,
+                    )
                 original_title = playlist.title
             except Exception as e:
-                return json.dumps({"error": f"Error fetching playlist by ID: {str(e)}"}, indent=4)
-        else:
+                return json.dumps(
+                    {"error": f"Error fetching playlist by ID: {str(e)}"}, indent=4
+                )
+        elif playlist_title:
             # Search by title
             playlists = plex.playlists()
-            matching_playlists = [p for p in playlists if p.title.lower() == playlist_title.lower()]
-            
+            matching_playlists = [
+                p
+                for p in playlists
+                if p is not None and p.title.lower() == playlist_title.lower()
+            ]
+
             if not matching_playlists:
-                return json.dumps({"error": f"No playlist found with title '{playlist_title}'"}, indent=4)
-            
+                return json.dumps(
+                    {"error": f"No playlist found with title '{playlist_title}'"},
+                    indent=4,
+                )
+
             # If multiple matching playlists, return list of matches with IDs
             if len(matching_playlists) > 1:
                 matches = []
-                for p in matching_playlists:
-                    matches.append({
-                        "title": p.title,
-                        "id": p.ratingKey,
-                        "type": p.playlistType,
-                        "item_count": p.leafCount if hasattr(p, 'leafCount') else len(p.items())
-                    })
-                
+                for p in [p for p in matching_playlists if p is not None]:
+                    matches.append(
+                        {
+                            "title": p.title,
+                            "id": p.ratingKey,
+                            "type": p.playlistType,
+                            "item_count": (
+                                p.leafCount
+                                if hasattr(p, "leafCount")
+                                else len(p.items())
+                            ),
+                        }
+                    )
+
                 # Return as a direct array like playlist_list
                 return json.dumps(matches, indent=4)
-                
+
             playlist = matching_playlists[0]
             original_title = playlist.title
-        
+        else:
+            return json.dumps(
+                {"error": "Either playlist_id or playlist_title must be provided"},
+                indent=4,
+            )
+
         # Track changes
         changes = []
-        
+
         # Update title if provided
         if new_title and new_title != playlist.title:
             playlist.edit(title=new_title)
             changes.append(f"title from '{original_title}' to '{new_title}'")
-        
+
         # Update summary if provided
         if new_summary is not None:  # Allow empty summaries
-            current_summary = playlist.summary if hasattr(playlist, 'summary') else ""
+            current_summary = playlist.summary if hasattr(playlist, "summary") else ""
             if new_summary != current_summary:
                 playlist.edit(summary=new_summary)
                 changes.append("summary")
-        
+
         if not changes:
-            return json.dumps({
-                "updated": False,
-                "title": playlist.title,
-                "message": "No changes made to the playlist"
-            }, indent=4)
-            
-        return json.dumps({
-            "updated": True,
-            "title": new_title or playlist.title,
-            "changes": changes
-        }, indent=4)
+            return json.dumps(
+                {
+                    "updated": False,
+                    "title": playlist.title,
+                    "message": "No changes made to the playlist",
+                },
+                indent=4,
+            )
+
+        return json.dumps(
+            {"updated": True, "title": new_title or playlist.title, "changes": changes},
+            indent=4,
+        )
     except Exception as e:
         return json.dumps({"error": str(e)}, indent=4)
 
-@mcp.tool()
-async def playlist_upload_poster(playlist_title: str = None, playlist_id: int = None, poster_url: str = None, poster_filepath: str = None) -> str:
+
+@tool_metadata(
+    name="plex_playlist_upload_poster",
+    description="Upload a poster image for a playlist.",
+    annotations=ToolAnnotations(
+        title="Upload Playlist Poster",
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=False,
+    ),
+)
+async def playlist_upload_poster(
+    playlist_title: Annotated[
+        str | None,
+        Field(
+            title="Playlist Title",
+            default=None,
+            description="Title of the playlist to set poster for. If not provided, playlist_id must be specified.",
+            examples=["My Favorite Movies", "Chill Music Playlist"],
+        ),
+    ] = None,
+    playlist_id: Annotated[
+        int | None,
+        Field(
+            title="Playlist ID",
+            default=None,
+            description="ID of the playlist to set poster for. If not provided, playlist_title must be specified.",
+            examples=[12345, 67890],
+        ),
+    ] = None,
+    poster_url: Annotated[
+        str | None,
+        Field(
+            title="Poster URL",
+            default=None,
+            description="URL to an image to use as poster. If not provided, poster_filepath must be specified.",
+            examples=[
+                "https://example.com/poster.jpg",
+                "https://example.com/image.png",
+            ],
+        ),
+    ] = None,
+    poster_filepath: Annotated[
+        str | None,
+        Field(
+            title="Poster File Path",
+            default=None,
+            description="Local file path to an image to use as poster. If not provided, poster_url must be specified.",
+            examples=["/path/to/poster.jpg", "/path/to/image.png"],
+        ),
+    ] = None,
+) -> str:
     """Upload a poster image for a playlist.
-    
+
     Args:
         playlist_title: Title of the playlist to set poster for (optional if playlist_id is provided)
         playlist_id: ID of the playlist to set poster for (optional if playlist_title is provided)
@@ -218,18 +473,24 @@ async def playlist_upload_poster(playlist_title: str = None, playlist_id: int = 
     """
     try:
         plex = connect_to_plex()
-        
+
         # Validate that at least one identifier is provided
         if not playlist_id and not playlist_title:
-            return json.dumps({"error": "Either playlist_id or playlist_title must be provided"}, indent=4)
-        
+            return json.dumps(
+                {"error": "Either playlist_id or playlist_title must be provided"},
+                indent=4,
+            )
+
         # Check that at least one poster source is provided
         if not poster_url and not poster_filepath:
-            return json.dumps({"error": "Either poster_url or poster_filepath must be provided"}, indent=4)
-        
+            return json.dumps(
+                {"error": "Either poster_url or poster_filepath must be provided"},
+                indent=4,
+            )
+
         # Find the playlist
         playlist = None
-        
+
         # If playlist_id is provided, use it to directly fetch the playlist
         if playlist_id:
             try:
@@ -239,76 +500,151 @@ async def playlist_upload_poster(playlist_title: str = None, playlist_id: int = 
                 except:
                     # If that fails, try finding by key in all playlists
                     all_playlists = plex.playlists()
-                    playlist = next((p for p in all_playlists if p.ratingKey == playlist_id), None)
-                
+                    playlist = next(
+                        (
+                            p
+                            for p in all_playlists
+                            if p is not None and p.ratingKey == playlist_id
+                        ),
+                        None,
+                    )
+
                 if not playlist:
-                    return json.dumps({"error": f"Playlist with ID '{playlist_id}' not found"}, indent=4)
+                    return json.dumps(
+                        {"error": f"Playlist with ID '{playlist_id}' not found"},
+                        indent=4,
+                    )
             except Exception as e:
-                return json.dumps({"error": f"Error fetching playlist by ID: {str(e)}"}, indent=4)
-        else:
+                return json.dumps(
+                    {"error": f"Error fetching playlist by ID: {str(e)}"}, indent=4
+                )
+        elif playlist_title:
             # Search by title
             playlists = plex.playlists()
-            matching_playlists = [p for p in playlists if p.title.lower() == playlist_title.lower()]
-            
+            matching_playlists = [
+                p
+                for p in playlists
+                if p is not None and p.title.lower() == playlist_title.lower()
+            ]
+
             if not matching_playlists:
-                return json.dumps({"error": f"No playlist found with title '{playlist_title}'"}, indent=4)
-            
+                return json.dumps(
+                    {"error": f"No playlist found with title '{playlist_title}'"},
+                    indent=4,
+                )
+
             # If multiple matching playlists, return list of matches with IDs
             if len(matching_playlists) > 1:
                 matches = []
                 for p in matching_playlists:
-                    matches.append({
-                        "title": p.title,
-                        "id": p.ratingKey,
-                        "type": p.playlistType,
-                        "item_count": p.leafCount if hasattr(p, 'leafCount') else len(p.items())
-                    })
-                
+                    matches.append(
+                        {
+                            "title": p.title,
+                            "id": p.ratingKey,
+                            "type": p.playlistType,
+                            "item_count": (
+                                p.leafCount
+                                if hasattr(p, "leafCount")
+                                else len(p.items())
+                            ),
+                        }
+                    )
+
                 # Return as a direct array like playlist_list
                 return json.dumps(matches, indent=4)
-                
+
             playlist = matching_playlists[0]
-        
+        else:
+            return json.dumps(
+                {"error": "Either playlist_id or playlist_title must be provided"},
+                indent=4,
+            )
+
         # Upload from URL
         if poster_url:
             try:
                 response = requests.get(poster_url)
                 if response.status_code != 200:
-                    return json.dumps({"error": f"Failed to download image from URL: {response.status_code}"}, indent=4)
-                
+                    return json.dumps(
+                        {
+                            "error": f"Failed to download image from URL: {response.status_code}"
+                        },
+                        indent=4,
+                    )
+
                 # Upload the poster
                 playlist.uploadPoster(url=poster_url)
-                return json.dumps({
-                    "updated": True,
-                    "poster_source": "url",
-                    "title": playlist.title
-                }, indent=4)
+                return json.dumps(
+                    {"updated": True, "poster_source": "url", "title": playlist.title},
+                    indent=4,
+                )
             except Exception as url_error:
-                return json.dumps({"error": f"Error uploading from URL: {str(url_error)}"}, indent=4)
-        
+                return json.dumps(
+                    {"error": f"Error uploading from URL: {str(url_error)}"}, indent=4
+                )
+
         # Upload from file
-        if poster_filepath:
-            if not os.path.exists(poster_filepath):
-                return json.dumps({"error": f"File not found: {poster_filepath}"}, indent=4)
-            
-            try:
-                # Upload the poster
-                playlist.uploadPoster(filepath=poster_filepath)
-                return json.dumps({
-                    "updated": True,
-                    "poster_source": "file",
-                    "title": playlist.title
-                }, indent=4)
-            except Exception as file_error:
-                return json.dumps({"error": f"Error uploading from file: {str(file_error)}"}, indent=4)
-        
+        if not poster_filepath or not os.path.exists(poster_filepath):
+            return json.dumps({"error": f"File not found: {poster_filepath}"}, indent=4)
+
+        try:
+            # Upload the poster
+            playlist.uploadPoster(filepath=poster_filepath)
+            return json.dumps(
+                {"updated": True, "poster_source": "file", "title": playlist.title},
+                indent=4,
+            )
+        except Exception as file_error:
+            return json.dumps(
+                {"error": f"Error uploading from file: {str(file_error)}"}, indent=4
+            )
+
     except Exception as e:
         return json.dumps({"error": str(e)}, indent=4)
 
-@mcp.tool()
-async def playlist_copy_to_user(playlist_title: str = None, playlist_id: int = None, username: str = None) -> str:
+
+@tool_metadata(
+    name="plex_playlist_copy_to_user",
+    description="Copy a playlist to another user account.",
+    annotations=ToolAnnotations(
+        title="Copy Playlist to User",
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=False,
+    ),
+)
+async def playlist_copy_to_user(
+    playlist_title: Annotated[
+        str | None,
+        Field(
+            title="Playlist Title",
+            default=None,
+            description="Title of the playlist to copy. If not provided, playlist_id must be specified.",
+            examples=["My Favorite Movies", "Chill Music Playlist"],
+        ),
+    ] = None,
+    playlist_id: Annotated[
+        int | None,
+        Field(
+            title="Playlist ID",
+            default=None,
+            description="ID of the playlist to copy. If not provided, playlist_title must be specified.",
+            examples=[12345, 67890],
+        ),
+    ] = None,
+    username: Annotated[
+        str | None,
+        Field(
+            title="Username",
+            default=None,
+            description="Username of the user to copy the playlist to. This user must exist on the Plex server.",
+            examples=["john_doe", "jane.smith"],
+        ),
+    ] = None,
+) -> str:
     """Copy a playlist to another user account.
-    
+
     Args:
         playlist_title: Title of the playlist to copy (optional if playlist_id is provided)
         playlist_id: ID of the playlist to copy (optional if playlist_title is provided)
@@ -316,17 +652,25 @@ async def playlist_copy_to_user(playlist_title: str = None, playlist_id: int = N
     """
     try:
         plex = connect_to_plex()
-        
+
         # Validate that at least one identifier is provided
         if not playlist_id and not playlist_title:
-            return json.dumps({"status": "error", "message": "Either playlist_id or playlist_title must be provided"}, indent=4)
-        
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": "Either playlist_id or playlist_title must be provided",
+                },
+                indent=4,
+            )
+
         if not username:
-            return json.dumps({"status": "error", "message": "Username must be provided"}, indent=4)
-        
+            return json.dumps(
+                {"status": "error", "message": "Username must be provided"}, indent=4
+            )
+
         # Find the playlist
         playlist = None
-        
+
         # If playlist_id is provided, use it to directly fetch the playlist
         if playlist_id:
             try:
@@ -336,60 +680,159 @@ async def playlist_copy_to_user(playlist_title: str = None, playlist_id: int = N
                 except:
                     # If that fails, try finding by key in all playlists
                     all_playlists = plex.playlists()
-                    playlist = next((p for p in all_playlists if p.ratingKey == playlist_id), None)
-                
+                    playlist = next(
+                        (
+                            p
+                            for p in all_playlists
+                            if p is not None and p.ratingKey == playlist_id
+                        ),
+                        None,
+                    )
+
                 if not playlist:
-                    return json.dumps({"status": "error", "message": f"Playlist with ID '{playlist_id}' not found"}, indent=4)
+                    return json.dumps(
+                        {
+                            "status": "error",
+                            "message": f"Playlist with ID '{playlist_id}' not found",
+                        },
+                        indent=4,
+                    )
             except Exception as e:
-                return json.dumps({"status": "error", "message": f"Error fetching playlist by ID: {str(e)}"}, indent=4)
-        else:
+                return json.dumps(
+                    {
+                        "status": "error",
+                        "message": f"Error fetching playlist by ID: {str(e)}",
+                    },
+                    indent=4,
+                )
+        elif playlist_title:
             # Search by title
             playlists = plex.playlists()
-            matching_playlists = [p for p in playlists if p.title.lower() == playlist_title.lower()]
-            
+            matching_playlists = [
+                p
+                for p in playlists
+                if p is not None and p.title.lower() == playlist_title.lower()
+            ]
+
             if not matching_playlists:
-                return json.dumps({"status": "error", "message": f"No playlist found with title '{playlist_title}'"}, indent=4)
-            
+                return json.dumps(
+                    {
+                        "status": "error",
+                        "message": f"No playlist found with title '{playlist_title}'",
+                    },
+                    indent=4,
+                )
+
             # If multiple matching playlists, return list of matches with IDs
             if len(matching_playlists) > 1:
                 matches = []
                 for p in matching_playlists:
-                    matches.append({
-                        "title": p.title,
-                        "id": p.ratingKey,
-                        "type": p.playlistType,
-                        "item_count": p.leafCount if hasattr(p, 'leafCount') else len(p.items())
-                    })
-                
-                return json.dumps({
-                    "status": "multiple_matches",
-                    "message": f"Found {len(matching_playlists)} playlists with title '{playlist_title}'. Please specify the playlist ID.",
-                    "matches": matches
-                }, indent=4)
-                
+                    matches.append(
+                        {
+                            "title": p.title,
+                            "id": p.ratingKey,
+                            "type": p.playlistType,
+                            "item_count": (
+                                p.leafCount
+                                if hasattr(p, "leafCount")
+                                else len(p.items())
+                            ),
+                        }
+                    )
+
+                return json.dumps(
+                    {
+                        "status": "multiple_matches",
+                        "message": f"Found {len(matching_playlists)} playlists with title '{playlist_title}'. Please specify the playlist ID.",
+                        "matches": matches,
+                    },
+                    indent=4,
+                )
+
             playlist = matching_playlists[0]
-        
+        else:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": "Either playlist_id or playlist_title must be provided",
+                },
+                indent=4,
+            )
+
         # Find the user
         users = plex.myPlexAccount().users()
         user = next((u for u in users if u.title.lower() == username.lower()), None)
-        
+
         if not user:
-            return json.dumps({"status": "error", "message": f"User '{username}' not found"}, indent=4)
-        
+            return json.dumps(
+                {"status": "error", "message": f"User '{username}' not found"}, indent=4
+            )
+
         # Copy the playlist
         playlist.copyToUser(user=user)
-        
-        return json.dumps({
-            "status": "success", 
-            "message": f"Playlist '{playlist.title}' copied to user '{username}'"
-        }, indent=4)
+
+        return json.dumps(
+            {
+                "status": "success",
+                "message": f"Playlist '{playlist.title}' copied to user '{username}'",
+            },
+            indent=4,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)}, indent=4)
 
-@mcp.tool()
-async def playlist_add_to(playlist_title: str = None, playlist_id: int = None, item_titles: List[str] = None, item_ids: List[int] = None) -> str:
+
+@tool_metadata(
+    name="plex_playlist_add_to",
+    description="Add items to a playlist.",
+    annotations=ToolAnnotations(
+        title="Add Items to Playlist",
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=False,
+    ),
+)
+async def playlist_add_to(
+    playlist_title: Annotated[
+        str | None,
+        Field(
+            title="Playlist Title",
+            default=None,
+            description="Title of the playlist to add to (optional if playlist_id is provided)",
+            examples=["My Favorite Movies", "Chill Music Playlist"],
+        ),
+    ] = None,
+    playlist_id: Annotated[
+        int | None,
+        Field(
+            title="Playlist ID",
+            default=None,
+            description="ID of the playlist to add to (optional if playlist_title is provided)",
+            examples=[12345, 67890],
+        ),
+    ] = None,
+    item_titles: Annotated[
+        List[str] | None,
+        Field(
+            title="Item Titles",
+            default=None,
+            description="List of media titles to add to the playlist (optional if item_ids is provided). Each title should match an item in your Plex library.",
+            examples=[["Inception", "Breaking Bad", "The Office"]],
+        ),
+    ] = None,
+    item_ids: Annotated[
+        List[int] | None,
+        Field(
+            title="Item IDs",
+            default=None,
+            description="List of media IDs to add to the playlist (optional if item_titles is provided). Each ID should correspond to an item in your Plex library.",
+            examples=[[12345, 67890, 112233]],
+        ),
+    ] = None,
+) -> str:
     """Add items to a playlist.
-    
+
     Args:
         playlist_title: Title of the playlist to add to (optional if playlist_id is provided)
         playlist_id: ID of the playlist to add to (optional if playlist_title is provided)
@@ -398,18 +841,25 @@ async def playlist_add_to(playlist_title: str = None, playlist_id: int = None, i
     """
     try:
         plex = connect_to_plex()
-        
+
         # Validate that at least one identifier is provided
         if not playlist_id and not playlist_title:
-            return json.dumps({"error": "Either playlist_id or playlist_title must be provided"}, indent=4)
-        
+            return json.dumps(
+                {"error": "Either playlist_id or playlist_title must be provided"},
+                indent=4,
+            )
+
         # Validate that at least one item source is provided
-        if (not item_titles or len(item_titles) == 0) and (not item_ids or len(item_ids) == 0):
-            return json.dumps({"error": "Either item_titles or item_ids must be provided"}, indent=4)
-        
+        if (not item_titles or len(item_titles) == 0) and (
+            not item_ids or len(item_ids) == 0
+        ):
+            return json.dumps(
+                {"error": "Either item_titles or item_ids must be provided"}, indent=4
+            )
+
         # Find the playlist
         playlist = None
-        
+
         # If playlist_id is provided, use it to directly fetch the playlist
         if playlist_id:
             try:
@@ -419,40 +869,70 @@ async def playlist_add_to(playlist_title: str = None, playlist_id: int = None, i
                 except:
                     # If that fails, try finding by key in all playlists
                     all_playlists = plex.playlists()
-                    playlist = next((p for p in all_playlists if p.ratingKey == playlist_id), None)
-                
+                    playlist = next(
+                        (
+                            p
+                            for p in all_playlists
+                            if p is not None and p.ratingKey == playlist_id
+                        ),
+                        None,
+                    )
+
                 if not playlist:
-                    return json.dumps({"error": f"Playlist with ID '{playlist_id}' not found"}, indent=4)
+                    return json.dumps(
+                        {"error": f"Playlist with ID '{playlist_id}' not found"},
+                        indent=4,
+                    )
             except Exception as e:
-                return json.dumps({"error": f"Error fetching playlist by ID: {str(e)}"}, indent=4)
-        else:
+                return json.dumps(
+                    {"error": f"Error fetching playlist by ID: {str(e)}"}, indent=4
+                )
+        elif playlist_title:
             # Search by title
             playlists = plex.playlists()
-            matching_playlists = [p for p in playlists if p.title.lower() == playlist_title.lower()]
-            
+            matching_playlists = [
+                p
+                for p in playlists
+                if p is not None and p.title.lower() == playlist_title.lower()
+            ]
+
             if not matching_playlists:
-                return json.dumps({"error": f"No playlist found with title '{playlist_title}'"}, indent=4)
-            
+                return json.dumps(
+                    {"error": f"No playlist found with title '{playlist_title}'"},
+                    indent=4,
+                )
+
             # If multiple matching playlists, return list of matches with IDs
             if len(matching_playlists) > 1:
                 matches = []
                 for p in matching_playlists:
-                    matches.append({
-                        "title": p.title,
-                        "id": p.ratingKey,
-                        "type": p.playlistType,
-                        "item_count": p.leafCount if hasattr(p, 'leafCount') else len(p.items())
-                    })
-                
+                    matches.append(
+                        {
+                            "title": p.title,
+                            "id": p.ratingKey,
+                            "type": p.playlistType,
+                            "item_count": (
+                                p.leafCount
+                                if hasattr(p, "leafCount")
+                                else len(p.items())
+                            ),
+                        }
+                    )
+
                 # Return as a direct array like playlist_list
-                return json.dumps({"Multiple Matches":matches}, indent=4)
-                
+                return json.dumps({"Multiple Matches": matches}, indent=4)
+
             playlist = matching_playlists[0]
-        
+        else:
+            return json.dumps(
+                {"error": "Either playlist_id or playlist_title must be provided"},
+                indent=4,
+            )
+
         # Find items to add
         items_to_add = []
         not_found = []
-        
+
         # If we have item IDs, try to add by ID first
         if item_ids and len(item_ids) > 0:
             for item_id in item_ids:
@@ -465,51 +945,60 @@ async def playlist_add_to(playlist_title: str = None, playlist_id: int = None, i
                         not_found.append(str(item_id))
                 except Exception as e:
                     not_found.append(str(item_id))
-        
+
         # If we have item titles, search for them
         if item_titles and len(item_titles) > 0:
             # Search all library sections
             all_sections = plex.library.sections()
-            
+
             for title in item_titles:
                 found_item = None
                 possible_matches = []
-                
+
                 # Try to find the item in each section
                 for section in all_sections:
                     # Skip photo libraries
-                    if section.type in ['photo']:
+                    if section.type in ["photo"]:
                         continue
-                    
+
                     search_results = section.search(title)
                     if search_results:
                         # Check for exact title match (case insensitive)
-                        exact_matches = [item for item in search_results if item.title.lower() == title.lower()]
+                        exact_matches = [
+                            item
+                            for item in search_results
+                            if item.title.lower() == title.lower()
+                        ]
                         if exact_matches:
                             found_item = exact_matches[0]
                             break
                         else:
                             # Add to possible matches if not an exact match
                             for item in search_results:
-                                possible_matches.append({
-                                    "title": item.title,
-                                    "id": item.ratingKey,
-                                    "type": item.type,
-                                    "year": item.year if hasattr(item, 'year') and item.year else None
-                                })
-                
+                                possible_matches.append(
+                                    {
+                                        "title": item.title,
+                                        "id": item.ratingKey,
+                                        "type": item.type,
+                                        "year": (
+                                            item.year
+                                            if hasattr(item, "year") and item.year
+                                            else None
+                                        ),
+                                    }
+                                )
+
                 if found_item:
                     items_to_add.append(found_item)
                 elif possible_matches:
                     # If we have possible matches but no exact match, add title to not_found
                     # and store the possible matches to return later
-                    not_found.append({
-                        "title": title,
-                        "possible_matches": possible_matches
-                    })
+                    not_found.append(
+                        {"title": title, "possible_matches": possible_matches}
+                    )
                 else:
                     not_found.append(title)
-        
+
         if not items_to_add:
             # If we have possible matches, return them
             if any(isinstance(item, dict) for item in not_found):
@@ -519,29 +1008,76 @@ async def playlist_add_to(playlist_title: str = None, playlist_id: int = None, i
                         for match in item["possible_matches"]:
                             if match not in possible_matches_response:
                                 possible_matches_response.append(match)
-                    
-                return json.dumps({"Multiple Possible Matches Use ID" : possible_matches_response}, indent=4)
-            
-            return json.dumps({"error": "No matching items found to add to the playlist"}, indent=4)
-        
+
+                return json.dumps(
+                    {"Multiple Possible Matches Use ID": possible_matches_response},
+                    indent=4,
+                )
+
+            return json.dumps(
+                {"error": "No matching items found to add to the playlist"}, indent=4
+            )
+
         # Add items to the playlist
         for item in items_to_add:
             playlist.addItems(item)
-        
-        return json.dumps({
-            "added": True,
-            "title": playlist.title,
-            "items_added": [item.title for item in items_to_add],
-            "items_not_found": not_found,
-            "total_items": len(playlist.items())
-        }, indent=4)
+
+        return json.dumps(
+            {
+                "added": True,
+                "title": playlist.title,
+                "items_added": [item.title for item in items_to_add],
+                "items_not_found": not_found,
+                "total_items": len(playlist.items()),
+            },
+            indent=4,
+        )
     except Exception as e:
         return json.dumps({"error": str(e)}, indent=4)
 
-@mcp.tool()
-async def playlist_remove_from(playlist_title: str = None, playlist_id: int = None, item_titles: List[str] = None) -> str:
+
+@tool_metadata(
+    name="plex_playlist_remove_from",
+    description="Remove items from a playlist.",
+    annotations=ToolAnnotations(
+        title="Remove Items from Playlist",
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=False,
+        openWorldHint=False,
+    ),
+)
+async def playlist_remove_from(
+    playlist_title: Annotated[
+        str | None,
+        Field(
+            title="Playlist Title",
+            default=None,
+            description="Title of the playlist to remove from (optional if playlist_id is provided)",
+            examples=["My Favorite Movies", "Chill Music Playlist", "Weekend TV Shows"],
+        ),
+    ] = None,
+    playlist_id: Annotated[
+        int | None,
+        Field(
+            title="Playlist ID",
+            default=None,
+            description="ID of the playlist to remove from (optional if playlist_title is provided)",
+            examples=[12345, 67890, 112233],
+        ),
+    ] = None,
+    item_titles: Annotated[
+        List[str] | None,
+        Field(
+            title="Item Titles",
+            default=None,
+            description="List of media titles to remove from the playlist. Each title should match an item in the playlist.",
+            examples=[["Inception", "Breaking Bad", "The Office"]],
+        ),
+    ] = None,
+) -> str:
     """Remove items from a playlist.
-    
+
     Args:
         playlist_title: Title of the playlist to remove from (optional if playlist_id is provided)
         playlist_id: ID of the playlist to remove from (optional if playlist_title is provided)
@@ -549,17 +1085,23 @@ async def playlist_remove_from(playlist_title: str = None, playlist_id: int = No
     """
     try:
         plex = connect_to_plex()
-        
+
         # Validate that at least one identifier is provided
         if not playlist_id and not playlist_title:
-            return json.dumps({"error": "Either playlist_id or playlist_title must be provided"}, indent=4)
-        
+            return json.dumps(
+                {"error": "Either playlist_id or playlist_title must be provided"},
+                indent=4,
+            )
+
         if not item_titles or len(item_titles) == 0:
-            return json.dumps({"error": "At least one item title must be provided to remove"}, indent=4)
-        
+            return json.dumps(
+                {"error": "At least one item title must be provided to remove"},
+                indent=4,
+            )
+
         # Find the playlist
         playlist = None
-        
+
         # If playlist_id is provided, use it to directly fetch the playlist
         if playlist_id:
             try:
@@ -569,43 +1111,73 @@ async def playlist_remove_from(playlist_title: str = None, playlist_id: int = No
                 except:
                     # If that fails, try finding by key in all playlists
                     all_playlists = plex.playlists()
-                    playlist = next((p for p in all_playlists if p.ratingKey == playlist_id), None)
-                
+                    playlist = next(
+                        (
+                            p
+                            for p in all_playlists
+                            if p is not None and p.ratingKey == playlist_id
+                        ),
+                        None,
+                    )
+
                 if not playlist:
-                    return json.dumps({"error": f"Playlist with ID '{playlist_id}' not found"}, indent=4)
+                    return json.dumps(
+                        {"error": f"Playlist with ID '{playlist_id}' not found"},
+                        indent=4,
+                    )
             except Exception as e:
-                return json.dumps({"error": f"Error fetching playlist by ID: {str(e)}"}, indent=4)
-        else:
+                return json.dumps(
+                    {"error": f"Error fetching playlist by ID: {str(e)}"}, indent=4
+                )
+        elif playlist_title:
             # Search by title
             playlists = plex.playlists()
-            matching_playlists = [p for p in playlists if p.title.lower() == playlist_title.lower()]
-            
+            matching_playlists = [
+                p
+                for p in playlists
+                if p is not None and p.title.lower() == playlist_title.lower()
+            ]
+
             if not matching_playlists:
-                return json.dumps({"error": f"No playlist found with title '{playlist_title}'"}, indent=4)
-            
+                return json.dumps(
+                    {"error": f"No playlist found with title '{playlist_title}'"},
+                    indent=4,
+                )
+
             # If multiple matching playlists, return list of matches with IDs
             if len(matching_playlists) > 1:
                 matches = []
                 for p in matching_playlists:
-                    matches.append({
-                        "title": p.title,
-                        "id": p.ratingKey,
-                        "type": p.playlistType,
-                        "item_count": p.leafCount if hasattr(p, 'leafCount') else len(p.items())
-                    })
-                
+                    matches.append(
+                        {
+                            "title": p.title,
+                            "id": p.ratingKey,
+                            "type": p.playlistType,
+                            "item_count": (
+                                p.leafCount
+                                if hasattr(p, "leafCount")
+                                else len(p.items())
+                            ),
+                        }
+                    )
+
                 # Return as a direct array like playlist_list
-                return json.dumps({"Multiple Matches":matches}, indent=4)
-                
+                return json.dumps({"Multiple Matches": matches}, indent=4)
+
             playlist = matching_playlists[0]
-        
+        else:
+            return json.dumps(
+                {"error": "Either playlist_id or playlist_title must be provided"},
+                indent=4,
+            )
+
         # Get current items in the playlist
         playlist_items = playlist.items()
-        
+
         # Find items to remove
         items_to_remove = []
         not_found = []
-        
+
         for title in item_titles:
             found = False
             for item in playlist_items:
@@ -615,56 +1187,93 @@ async def playlist_remove_from(playlist_title: str = None, playlist_id: int = No
                     break
             if not found:
                 not_found.append(title)
-        
+
         if not items_to_remove:
             # No items found to remove, return the current playlist contents
             current_items = []
             for item in playlist_items:
-                current_items.append({
-                    "title": item.title,
-                    "type": item.type,
-                    "id": item.ratingKey
-                })
-            
-            return json.dumps({
-                "error": "No matching items found in the playlist to remove",
-                "playlist_title": playlist.title,
-                "playlist_id": playlist.ratingKey,
-                "current_items": current_items
-            }, indent=4)
-        
+                current_items.append(
+                    {"title": item.title, "type": item.type, "id": item.ratingKey}
+                )
+
+            return json.dumps(
+                {
+                    "error": "No matching items found in the playlist to remove",
+                    "playlist_title": playlist.title,
+                    "playlist_id": playlist.ratingKey,
+                    "current_items": current_items,
+                },
+                indent=4,
+            )
+
         # Remove items from the playlist
         # Using removeItems (plural) since removeItem is deprecated
         playlist.removeItems(items_to_remove)
-        
-        return json.dumps({
-            "removed": True,
-            "title": playlist.title,
-            "items_removed": [item.title for item in items_to_remove],
-            "items_not_found": not_found,
-            "remaining_items": len(playlist.items())
-        }, indent=4)
+
+        return json.dumps(
+            {
+                "removed": True,
+                "title": playlist.title,
+                "items_removed": [item.title for item in items_to_remove],
+                "items_not_found": not_found,
+                "remaining_items": len(playlist.items()),
+            },
+            indent=4,
+        )
     except Exception as e:
         return json.dumps({"error": str(e)}, indent=4)
 
-@mcp.tool()
-async def playlist_delete(playlist_title: str = None, playlist_id: int = None) -> str:
+
+@tool_metadata(
+    name="plex_playlist_delete",
+    description="Delete a playlist by title or ID.",
+    annotations=ToolAnnotations(
+        title="Delete Playlist",
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=False,
+        openWorldHint=False,
+    ),
+)
+async def playlist_delete(
+    playlist_title: Annotated[
+        str | None,
+        Field(
+            title="Playlist Title",
+            default=None,
+            description="Title of the playlist to delete (optional if playlist_id is provided)",
+            examples=["My Favorite Movies", "Chill Music Playlist", "Weekend TV Shows"],
+        ),
+    ] = None,
+    playlist_id: Annotated[
+        int | None,
+        Field(
+            title="Playlist ID",
+            default=None,
+            description="ID of the playlist to delete (optional if playlist_title is provided)",
+            examples=[12345, 67890, 112233],
+        ),
+    ] = None,
+) -> str:
     """Delete a playlist.
-    
+
     Args:
         playlist_title: Title of the playlist to delete (optional if playlist_id is provided)
         playlist_id: ID of the playlist to delete (optional if playlist_title is provided)
     """
     try:
         plex = connect_to_plex()
-        
+
         # Validate that at least one identifier is provided
         if not playlist_id and not playlist_title:
-            return json.dumps({"error": "Either playlist_id or playlist_title must be provided"}, indent=4)
-        
+            return json.dumps(
+                {"error": "Either playlist_id or playlist_title must be provided"},
+                indent=4,
+            )
+
         # Find the playlist
         playlist = None
-        
+
         # If playlist_id is provided, use it to directly fetch the playlist
         if playlist_id:
             try:
@@ -674,69 +1283,131 @@ async def playlist_delete(playlist_title: str = None, playlist_id: int = None) -
                 except:
                     # If that fails, try finding by key in all playlists
                     all_playlists = plex.playlists()
-                    playlist = next((p for p in all_playlists if p.ratingKey == playlist_id), None)
-                
+                    playlist = next(
+                        (
+                            p
+                            for p in all_playlists
+                            if p is not None and p.ratingKey == playlist_id
+                        ),
+                        None,
+                    )
+
                 if not playlist:
-                    return json.dumps({"error": f"Playlist with ID '{playlist_id}' not found"}, indent=4)
+                    return json.dumps(
+                        {"error": f"Playlist with ID '{playlist_id}' not found"},
+                        indent=4,
+                    )
             except Exception as e:
-                return json.dumps({"error": f"Error fetching playlist by ID: {str(e)}"}, indent=4)
-        else:
+                return json.dumps(
+                    {"error": f"Error fetching playlist by ID: {str(e)}"}, indent=4
+                )
+        elif playlist_title:
             # Search by title
             playlists = plex.playlists()
-            matching_playlists = [p for p in playlists if p.title.lower() == playlist_title.lower()]
-            
+            matching_playlists = [
+                p
+                for p in playlists
+                if p is not None and p.title.lower() == playlist_title.lower()
+            ]
+
             if not matching_playlists:
-                return json.dumps({"error": f"No playlist found with title '{playlist_title}'"}, indent=4)
-            
+                return json.dumps(
+                    {"error": f"No playlist found with title '{playlist_title}'"},
+                    indent=4,
+                )
+
             # If multiple matching playlists, return list of matches with IDs
             if len(matching_playlists) > 1:
                 matches = []
                 for p in matching_playlists:
-                    matches.append({
-                        "title": p.title,
-                        "id": p.ratingKey,
-                        "type": p.playlistType,
-                        "item_count": p.leafCount if hasattr(p, 'leafCount') else len(p.items())
-                    })
-                
+                    matches.append(
+                        {
+                            "title": p.title,
+                            "id": p.ratingKey,
+                            "type": p.playlistType,
+                            "item_count": (
+                                p.leafCount
+                                if hasattr(p, "leafCount")
+                                else len(p.items())
+                            ),
+                        }
+                    )
+
                 # Return as a direct array like playlist_list
                 return json.dumps(matches, indent=4)
-                
+
             playlist = matching_playlists[0]
-        
+        else:
+            return json.dumps(
+                {"error": "Either playlist_id or playlist_title must be provided"},
+                indent=4,
+            )
+
         # Get the playlist title to return in the message
         playlist_title_to_return = playlist.title
-        
+
         # Delete the playlist
         playlist.delete()
-        
+
         # Return a simple object with the result
-        return json.dumps({
-            "deleted": True,
-            "title": playlist_title_to_return
-        }, indent=4)
-        
+        return json.dumps(
+            {"deleted": True, "title": playlist_title_to_return}, indent=4
+        )
+
     except Exception as e:
         return json.dumps({"error": str(e)}, indent=4)
 
-@mcp.tool()
-async def playlist_get_contents(playlist_title: str = None, playlist_id: int = None) -> str:
+
+@tool_metadata(
+    name="plex_playlist_get_contents",
+    description="Get the contents of a playlist by title or ID.",
+    annotations=ToolAnnotations(
+        title="Get Playlist Contents",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    ),
+)
+async def playlist_get_contents(
+    playlist_title: Annotated[
+        str | None,
+        Field(
+            title="Playlist Title",
+            default=None,
+            description="Title of the playlist to get contents of (optional if playlist_id is provided)",
+            examples=["My Favorite Movies", "Chill Music Playlist", "Weekend TV Shows"],
+        ),
+    ] = None,
+    playlist_id: Annotated[
+        int | None,
+        Field(
+            title="Playlist ID",
+            default=None,
+            description="ID of the playlist to get contents of (optional if playlist_title is provided)",
+            examples=[12345, 67890, 112233],
+        ),
+    ] = None,
+) -> str:
     """Get the contents of a playlist.
-    
+
     Args:
         playlist_title: Title of the playlist to get contents of (optional if playlist_id is provided)
         playlist_id: ID of the playlist to get contents of (optional if playlist_title is provided)
-        
+
     Returns:
         JSON object containing the playlist contents
     """
     try:
         plex = connect_to_plex()
-        
+
         # Validate that at least one identifier is provided
         if not playlist_id and not playlist_title:
-            return json.dumps({"error": "Either playlist_id or playlist_title must be provided"}, indent=4)
-        
+            return json.dumps(
+                {"error": "Either playlist_id or playlist_title must be provided"},
+                indent=4,
+            )
+
         # If playlist_id is provided, use it to directly fetch the playlist
         if playlist_id:
             try:
@@ -744,15 +1415,26 @@ async def playlist_get_contents(playlist_title: str = None, playlist_id: int = N
                 # Try fetching by ratingKey first
                 try:
                     playlist = plex.fetchItem(playlist_id)
-                    print(playlist.items())
+                    if not playlist:
+                        raise ValueError(f"Playlist with ID '{playlist_id}' not found")
                 except:
                     # If that fails, try finding by key in all playlists
                     all_playlists = plex.playlists()
-                    playlist = next((p for p in all_playlists if p.ratingKey == playlist_id), None)
-                
+                    playlist = next(
+                        (
+                            p
+                            for p in all_playlists
+                            if p is not None and p.ratingKey == playlist_id
+                        ),
+                        None,
+                    )
+
                 if not playlist:
-                    return json.dumps({"error": f"Playlist with ID '{playlist_id}' not found"}, indent=4)
-                
+                    return json.dumps(
+                        {"error": f"Playlist with ID '{playlist_id}' not found"},
+                        indent=4,
+                    )
+
                 # Get playlist contents
                 print(playlist)
                 return get_playlist_contents(playlist)
@@ -760,35 +1442,59 @@ async def playlist_get_contents(playlist_title: str = None, playlist_id: int = N
                 if "500" in str(e):
                     return json.dumps({"error": "Empty playlist"}, indent=4)
                 else:
-                    return json.dumps({"error": f"Error fetching playlist by ID: {str(e)}"}, indent=4)
-        
+                    return json.dumps(
+                        {"error": f"Error fetching playlist by ID: {str(e)}"}, indent=4
+                    )
+
+        if not playlist_title:
+            return json.dumps(
+                {"error": "Either playlist_id or playlist_title must be provided"},
+                indent=4,
+            )
         # If we get here, we're searching by title
         all_playlists = plex.playlists()
-        matching_playlists = [p for p in all_playlists if p.title.lower() == playlist_title.lower()]
-        
+        matching_playlists = [
+            p
+            for p in all_playlists
+            if p is not None and p.title.lower() == playlist_title.lower()
+        ]
+
         # If no matching playlists
         if not matching_playlists:
-            return json.dumps({"error": f"No playlist found with title '{playlist_title}'"}, indent=4)
-        
+            return json.dumps(
+                {"error": f"No playlist found with title '{playlist_title}'"}, indent=4
+            )
+
         # If multiple matching playlists, return list of matches with IDs
         if len(matching_playlists) > 1:
             matches = []
             for p in matching_playlists:
-                matches.append({
-                    "title": p.title,
-                    "id": p.ratingKey,
-                    "type": p.playlistType,
-                    "item_count": p.leafCount if hasattr(p, 'leafCount') else len(p.items())
-                })
-            
+                matches.append(
+                    {
+                        "title": p.title,
+                        "id": p.ratingKey,
+                        "type": p.playlistType,
+                        "item_count": (
+                            p.leafCount if hasattr(p, "leafCount") else len(p.items())
+                        ),
+                    }
+                )
+
             # Return as a direct array like playlist_list
             return json.dumps(matches, indent=4)
-        
+
         # Single match - get contents
         return get_playlist_contents(matching_playlists[0])
-    
+
     except Exception as e:
-        return json.dumps({"status": "error", "message": f"Error getting playlist contents: {str(e)}"}, indent=4)
+        return json.dumps(
+            {
+                "status": "error",
+                "message": f"Error getting playlist contents: {str(e)}",
+            },
+            indent=4,
+        )
+
 
 def get_playlist_contents(playlist):
     """Helper function to get formatted playlist contents."""
@@ -796,44 +1502,64 @@ def get_playlist_contents(playlist):
     try:
         items = playlist.items()
         playlist_items = []
-        
+
         for item in items:
             item_data = {
                 "title": item.title,
                 "type": item.type,
                 "ratingKey": item.ratingKey,
-                "addedAt": item.addedAt.strftime("%Y-%m-%d %H:%M:%S") if hasattr(item, 'addedAt') else None,
-                "duration": item.duration if hasattr(item, 'duration') else None,
-                "thumb": item.thumb if hasattr(item, 'thumb') else None
+                "addedAt": (
+                    item.addedAt.strftime("%Y-%m-%d %H:%M:%S")
+                    if hasattr(item, "addedAt")
+                    else None
+                ),
+                "duration": item.duration if hasattr(item, "duration") else None,
+                "thumb": item.thumb if hasattr(item, "thumb") else None,
             }
-            
+
             # Add media-type specific fields
-            if item.type == 'movie':
-                item_data["year"] = item.year if hasattr(item, 'year') else None
-            elif item.type == 'episode':
-                item_data["show"] = item.grandparentTitle if hasattr(item, 'grandparentTitle') else None
-                item_data["season"] = item.parentTitle if hasattr(item, 'parentTitle') else None
-                item_data["seasonNumber"] = item.parentIndex if hasattr(item, 'parentIndex') else None
-                item_data["episodeNumber"] = item.index if hasattr(item, 'index') else None
-            elif item.type == 'track':
-                item_data["artist"] = item.grandparentTitle if hasattr(item, 'grandparentTitle') else None
-                item_data["album"] = item.parentTitle if hasattr(item, 'parentTitle') else None
-                item_data["albumArtist"] = item.originalTitle if hasattr(item, 'originalTitle') else None
-            
+            if item.type == "movie":
+                item_data["year"] = item.year if hasattr(item, "year") else None
+            elif item.type == "episode":
+                item_data["show"] = (
+                    item.grandparentTitle if hasattr(item, "grandparentTitle") else None
+                )
+                item_data["season"] = (
+                    item.parentTitle if hasattr(item, "parentTitle") else None
+                )
+                item_data["seasonNumber"] = (
+                    item.parentIndex if hasattr(item, "parentIndex") else None
+                )
+                item_data["episodeNumber"] = (
+                    item.index if hasattr(item, "index") else None
+                )
+            elif item.type == "track":
+                item_data["artist"] = (
+                    item.grandparentTitle if hasattr(item, "grandparentTitle") else None
+                )
+                item_data["album"] = (
+                    item.parentTitle if hasattr(item, "parentTitle") else None
+                )
+                item_data["albumArtist"] = (
+                    item.originalTitle if hasattr(item, "originalTitle") else None
+                )
+
             playlist_items.append(item_data)
-        
+
         playlist_info = {
             "title": playlist.title,
             "id": playlist.ratingKey,
             "key": playlist.key,
             "type": playlist.playlistType,
-            "summary": playlist.summary if hasattr(playlist, 'summary') else None,
-            "duration": playlist.duration if hasattr(playlist, 'duration') else None,
+            "summary": playlist.summary if hasattr(playlist, "summary") else None,
+            "duration": playlist.duration if hasattr(playlist, "duration") else None,
             "itemCount": len(playlist_items),
-            "items": playlist_items
+            "items": playlist_items,
         }
-        
+
         # Return just the playlist info without status wrappers
         return json.dumps(playlist_info, indent=4)
     except Exception as e:
-        return json.dumps({"error": f"Error formatting playlist contents: {str(e)}"}, indent=4)
+        return json.dumps(
+            {"error": f"Error formatting playlist contents: {str(e)}"}, indent=4
+        )
