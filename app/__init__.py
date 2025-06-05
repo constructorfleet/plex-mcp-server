@@ -7,7 +7,7 @@ from mcp.server.sse import SseServerTransport # type: ignore
 from starlette.requests import Request # type: ignore
 
 # Import the main mcp instance from .modules
-from .modules import mcp, connect_to_plex
+from app.modules import mcp, connect_to_plex
 
 # Import all tools to ensure they are registered with MCP
 # Library module functions
