@@ -6,12 +6,12 @@ from mcp.server import Server # type: ignore
 from mcp.server.sse import SseServerTransport # type: ignore
 from starlette.requests import Request # type: ignore
 
-# Import the main mcp instance from .modules
+# Import the main mcp instance from app.modules
 from app.modules import mcp, connect_to_plex
 
 # Import all tools to ensure they are registered with MCP
 # Library module functions
-from .modules.library import (
+from app.modules.library import (
     library_list,
     library_get_stats,
     library_refresh,
@@ -21,7 +21,7 @@ from .modules.library import (
     library_get_contents
 )
 # User module functions
-from .modules.user import (
+from app.modules.user import (
     user_search_users,
     user_get_info,
     user_get_on_deck,
@@ -29,12 +29,12 @@ from .modules.user import (
     user_get_statistics
 )
 # Search module functions
-from .modules.sessions import (
+from app.modules.sessions import (
     sessions_get_active,
     sessions_get_media_playback_history
 )
 # Server module functions
-from .modules.server import (
+from app.modules.server import (
     server_get_plex_logs,
     server_get_info,
     server_get_bandwidth,
@@ -44,7 +44,7 @@ from .modules.server import (
     server_run_butler_task
 )
 # Playlist module functions
-from .modules.playlist import (
+from app.modules.playlist import (
     playlist_list,
     playlist_get_contents,
     playlist_create,
@@ -56,7 +56,7 @@ from .modules.playlist import (
     playlist_copy_to_user
 )
 # Collection module functions
-from .modules.collection import (
+from app.modules.collection import (
     collection_list,
     collection_create,
     collection_add_to,
@@ -64,7 +64,7 @@ from .modules.collection import (
     collection_edit
 )
 # Media module functions
-from .modules.media import (
+from app.modules.media import (
     media_search,
     media_get_details,
     media_edit_metadata,
@@ -74,7 +74,7 @@ from .modules.media import (
     media_list_available_artwork  
 )  
 # Client module functions
-from .modules.client import (
+from app.modules.client import (
     client_list, 
     client_get_details, 
     client_get_timelines,
